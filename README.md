@@ -47,18 +47,46 @@ worker, ни уведомлений.
 
 ## Запуск
 
+Сначала ключи для пушей — без них сервер не стартует:
+
+```bash
+cp .env.example .env
+npx web-push generate-vapid-keys   # положить пару в .env
+```
+
+### В Docker
+
+```bash
+docker compose up -d --build
+docker compose logs -f kuzgram
+```
+
+База и WAL-файлы лежат на хосте в `./data`, так что пересборка образа
+переписку не трогает. Контейнер работает от непривилегированного пользователя,
+`restart: unless-stopped` поднимает его после перезагрузки машины, healthcheck
+дёргает `/api/vapid-public-key` раз в полминуты.
+
+```bash
+docker compose exec kuzgram node bin/invite.js            # выдать код
+docker compose exec kuzgram node bin/invite.js --user 2   # код на устройство
+docker compose down                                       # остановить
+```
+
+### Без Docker
+
 ```bash
 npm install
-cp .env.example .env        # заполнить VAPID-ключи
-npx web-push generate-vapid-keys
 npm start
 ```
 
 Нужен Node 22 или новее: код использует встроенный тест-раннер и `fetch`.
-
 Простейший способ держать процесс живым — `nohup npm start > server.log 2>&1 &`,
-но перезагрузку машины это не переживёт. Для постоянной работы стоит оформить
-systemd-юнит.
+но перезагрузку машины это не переживёт; для постоянной работы лучше
+systemd-юнит или всё-таки Docker.
+
+Переезд с голого запуска в контейнер: остановить процесс, слить WAL
+(`node -e 'require("better-sqlite3")("kuzgram.db").pragma("wal_checkpoint(TRUNCATE)")'`),
+скопировать `kuzgram.db` в `./data/` и поднять compose.
 
 ## Приглашения
 
@@ -99,6 +127,8 @@ DELETE FROM tokens WHERE user_id = 3;   -- выкинет со всех устр
 | `public/transport.js` | Доставка сообщений: опрос раз в 2.5 с. Меняется на WebSocket без правок остального фронта |
 | `public/app.js` | Экраны входа и чата, лента, отправка, подписка на пуши |
 | `public/sw.js` | Показ уведомлений, клик по уведомлению |
+| `Dockerfile` | Двухстадийная сборка: тулчейн для нативного модуля остаётся в первом слое |
+| `docker-compose.yml` | Том `./data`, `.env`, порт 3000, автоперезапуск |
 
 API: `POST /api/join`, `GET /api/me`, `GET /api/messages?after=<id>`,
 `POST /api/messages`, `POST /api/subscribe`, `GET /api/vapid-public-key`.
@@ -198,6 +228,14 @@ npm run coverage  # то же самое с отчётом покрытия
 
 **`[push] отправлено 0` в логе.** Подписок в базе нет: `SELECT * FROM subscriptions`.
 После переустановки PWA подписку надо оформить заново.
+
+**Контейнер падает при старте с жалобой на VAPID.** `.env` не подхватился:
+`env_file` ищет его рядом с `docker-compose.yml`. Проверить —
+`docker compose exec kuzgram env | grep VAPID`.
+
+**После пересборки образа пропала переписка.** База должна лежать на томе
+`./data`, а не внутри контейнера: проверить, что `KUZGRAM_DB=/data/kuzgram.db`
+и каталог примонтирован.
 
 **`[push] 410, подписка удалена`.** Нормальное поведение: подписка протухла,
 сервер сам её выкинул. Оформить заново с устройства.

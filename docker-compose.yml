@@ -1,0 +1,18 @@
+services:
+  kuzgram:
+    build: .
+    image: kuzgram:local
+    container_name: kuzgram
+    restart: unless-stopped
+    init: true
+
+    # VAPID_PUBLIC, VAPID_PRIVATE, VAPID_SUBJECT
+    env_file: .env
+
+    # База и WAL-файлы лежат на хосте: пересборка образа их не трогает
+    volumes:
+      - ./data:/data
+
+    # Наружу приложение выставляет прокси, который терминирует TLS
+    ports:
+      - "3000:3000"
