@@ -10,6 +10,10 @@
 
 * { box-sizing: border-box; }
 
+/* Явный display в наших правилах перебивает display:none, который браузер
+   даёт атрибуту hidden. Возвращаем hidden власть над чем угодно */
+[hidden] { display: none !important; }
+
 html, body {
   height: 100%;
   margin: 0;
@@ -158,6 +162,50 @@ input, button {
   cursor: pointer;
 }
 .msg.failed .meta { color: #ffb3ae; }
+
+/* ---- смайлики ---- */
+
+.emoji-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 2px;
+  max-height: 40vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 10px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+.emoji-panel button {
+  padding: 6px 0;
+  font-size: 26px;
+  line-height: 1.2;
+  background: none;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.emoji-panel button:active { background: var(--line); }
+
+.emojibtn {
+  width: 42px;
+  flex: 0 0 auto;
+  font-size: 22px;
+  line-height: 1;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.emojibtn[aria-expanded="true"] { border-color: var(--accent); }
+
+/* Сообщение из одних смайликов показываем крупно, без «пузыря» */
+.msg.emoji-only .bubble {
+  background: none;
+  border-color: transparent;
+  padding: 2px 6px;
+}
+.msg.emoji-only .text { font-size: 40px; line-height: 1.15; }
 
 .composer {
   display: flex;

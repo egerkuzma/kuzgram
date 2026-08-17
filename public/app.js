@@ -16,6 +16,8 @@ var el = {
   feed: document.getElementById('feed'),
   feedEmpty: document.getElementById('feed-empty'),
   jump: document.getElementById('jump'),
+  emojiPanel: document.getElementById('emoji-panel'),
+  emojiToggle: document.getElementById('emoji-toggle'),
   composer: document.getElementById('composer'),
   input: document.getElementById('composer-input'),
   send: document.getElementById('composer-send'),
@@ -127,6 +129,8 @@ function bubble(text, own) {
   body.textContent = text; // только textContent: чужой текст в разметку не пускаем
   box.appendChild(body);
 
+  if (isEmojiOnly(text)) wrap.classList.add('emoji-only');
+
   var meta = document.createElement('span');
   meta.className = 'meta';
   box.appendChild(meta);
@@ -216,6 +220,72 @@ function syncViewport() {
   if (stick) scrollToBottom();
 }
 
+/* ---------- смайлики ---------- */
+
+var EMOJI = [
+  '😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😉', '🙂', '😎',
+  '🤔', '😐', '😴', '😅', '😢', '😭', '😡', '🤯', '🤗', '🤪',
+  '👍', '👎', '👌', '🙏', '👏', '🤝', '💪', '✌️', '🫶', '🖐️',
+  '❤️', '💔', '🔥', '✨', '🎉', '🎂', '🎁', '💯', '⚡', '🌈',
+  '🏠', '🚗', '✈️', '🛒', '🍕', '🍎', '☕', '🍺', '🍽️', '🧁',
+  '🐶', '🐱', '🌞', '🌧️', '❄️', '🌙', '⏰', '📞', '💤', '🚿',
+  '✅', '❌', '❓', '❗',
+];
+
+function buildEmojiPanel() {
+  var fragment = document.createDocumentFragment();
+
+  EMOJI.forEach(function (emoji) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = emoji;
+    button.addEventListener('click', function () { insertEmoji(emoji); });
+    fragment.appendChild(button);
+  });
+
+  el.emojiPanel.appendChild(fragment);
+}
+
+// Вставляем туда, где стоит курсор, а не в конец строки
+function insertEmoji(emoji) {
+  var input = el.input;
+  var start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+  var end = typeof input.selectionEnd === 'number' ? input.selectionEnd : start;
+
+  input.value = input.value.slice(0, start) + emoji + input.value.slice(end);
+
+  var caret = start + emoji.length;
+  input.focus();
+  if (input.setSelectionRange) input.setSelectionRange(caret, caret);
+}
+
+function toggleEmojiPanel(show) {
+  var open = show === undefined ? el.emojiPanel.hidden : show;
+  el.emojiPanel.hidden = !open;
+  el.emojiToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) scrollToBottom();
+}
+
+// Сообщение из одних смайликов (не длиннее трёх) рисуем крупно
+var EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|️|‍|\s)+$/u;
+
+function countGraphemes(text) {
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    return Array.from(new Intl.Segmenter().segment(text)).length;
+  }
+  return Array.from(text).length;
+}
+
+function isEmojiOnly(text) {
+  var trimmed = text.trim();
+  if (!trimmed) return false;
+  try {
+    return EMOJI_ONLY.test(trimmed) && countGraphemes(trimmed) <= 3;
+  } catch (err) {
+    return false; // старый WebKit без \p{...} — не беда, покажем обычным текстом
+  }
+}
+
 /* ---------- отправка ---------- */
 
 function markPending(node, status, detail) {
@@ -251,6 +321,7 @@ function onSubmitMessage(event) {
 
   el.input.value = '';
   el.feedEmpty.hidden = true;
+  toggleEmojiPanel(false);
 
   var node = bubble(text, true); // оптимистично: рисуем сразу, не дожидаясь сервера
   node.dataset.uid = String(state.user.id); // чтобы группировка видела автора
@@ -508,6 +579,9 @@ function boot() {
   el.loginForm.addEventListener('submit', onSubmitLogin);
   el.composer.addEventListener('submit', onSubmitMessage);
   el.pushBtn.addEventListener('click', onEnablePush);
+
+  buildEmojiPanel();
+  el.emojiToggle.addEventListener('click', function () { toggleEmojiPanel(); });
 
   el.jump.addEventListener('click', function () {
     scrollToBottom();

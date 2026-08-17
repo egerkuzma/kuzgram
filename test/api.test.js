@@ -208,6 +208,23 @@ test('сообщения: отправка, trim, чтение по after', asyn
   assert.ok(!after.json.messages.some((m) => m.id === created.json.message.id));
 });
 
+test('сообщения: смайлики доходят в целости', async () => {
+  const me = await join('Смайлик', 'EMJI');
+  const text = 'Привет 👨‍👩‍👧‍👦 🎉 ✌️';
+
+  const created = await call('POST', '/api/messages', { text }, me.token);
+  assert.strictEqual(created.json.message.text, text, 'составные эмодзи не должны рассыпаться');
+
+  const read = await call('GET', '/api/messages?after=0', undefined, me.token);
+  const found = read.json.messages.find((m) => m.id === created.json.message.id);
+  assert.strictEqual(found.text, text);
+
+  // Одни смайлики — тоже валидное сообщение
+  const only = await call('POST', '/api/messages', { text: '🔥🔥🔥' }, me.token);
+  assert.strictEqual(only.status, 200);
+  assert.strictEqual(only.json.message.text, '🔥🔥🔥');
+});
+
 test('сообщения: пустой текст и перебор длины', async () => {
   const me = await join('Молчун', 'SLNT');
 
