@@ -82,16 +82,25 @@ input, button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap; /* «Установить» и «Включить уведомления» могут висеть разом */
+  gap: 8px 12px;
   padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
 .topbar .title { font-weight: 600; }
-.topbar .who { color: var(--muted); font-size: 14px; }
+.topbar .who {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .pushbtn {
   margin-left: auto;
+  flex: 0 0 auto;
   padding: 6px 12px;
   font-size: 13px;
   font-weight: 600;

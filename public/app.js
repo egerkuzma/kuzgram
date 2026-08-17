@@ -13,6 +13,7 @@ var el = {
   chat: document.getElementById('chat'),
   who: document.getElementById('who'),
   pushBtn: document.getElementById('enable-push'),
+  installBtn: document.getElementById('install'),
   feed: document.getElementById('feed'),
   feedEmpty: document.getElementById('feed-empty'),
   jump: document.getElementById('jump'),
@@ -331,6 +332,41 @@ function onSubmitMessage(event) {
   deliver(text, node);
 }
 
+/* ---------- установка на домашний экран ---------- */
+
+// Chrome (Android и десктоп) даёт перехватить свой диалог установки и позвать
+// его в удобный момент. Safari такого события не шлёт: на iPhone приложение
+// ставится через «Поделиться → На экран Домой», кнопка там просто не появится
+var deferredInstall = null;
+
+function wireInstall() {
+  window.addEventListener('beforeinstallprompt', function (event) {
+    event.preventDefault();
+    deferredInstall = event;
+    el.installBtn.hidden = false;
+  });
+
+  window.addEventListener('appinstalled', function () {
+    deferredInstall = null;
+    el.installBtn.hidden = true;
+  });
+
+  el.installBtn.addEventListener('click', async function () {
+    if (!deferredInstall) return;
+    el.installBtn.disabled = true;
+    try {
+      deferredInstall.prompt();
+      await deferredInstall.userChoice;
+      deferredInstall = null;
+      el.installBtn.hidden = true;
+    } catch (err) {
+      showPageError('Установка: ' + describe(err));
+    } finally {
+      el.installBtn.disabled = false;
+    }
+  });
+}
+
 /* ---------- уведомления ---------- */
 
 var push = { key: null };
@@ -601,6 +637,7 @@ function boot() {
   wireTransport();
 
   registerWorker();
+  wireInstall();
   vapidKey().catch(function () { /* понадобится только при подписке */ });
 
   if (!state.token) return showLogin();
