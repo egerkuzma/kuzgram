@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Kuzgram</title>
+  <meta name="theme-color" content="#0d1117">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Kuzgram">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+  <!-- Открыто по http: дальше не пускаем -->
+  <section id="insecure" class="screen" hidden>
+    <p class="stop">Только по https</p>
+  </section>
+
+  <!-- Экран входа -->
+  <section id="login" class="screen" hidden>
+    <form id="login-form" class="login-box" autocomplete="off">
+      <h1>Kuzgram</h1>
+      <p class="hint">Введи код приглашения. Имя — только если ты здесь впервые:
+        код на второе устройство подставит его сам.</p>
+
+      <input id="login-code" type="text" placeholder="KUZ-XXXX-XXXX" required
+             autocapitalize="characters" autocorrect="off" spellcheck="false"
+             enterkeyhint="next" maxlength="20">
+      <input id="login-name" type="text" placeholder="Имя"
+             autocapitalize="words" autocorrect="off" spellcheck="false"
+             enterkeyhint="go" maxlength="32">
+
+      <button id="login-submit" type="submit">Войти</button>
+      <p id="login-error" class="error" hidden></p>
+    </form>
+  </section>
+
+  <!-- Экран чата -->
+  <section id="chat" class="screen" hidden>
+    <header class="topbar">
+      <span class="title">Kuzgram</span>
+      <button id="enable-push" class="pushbtn" type="button" hidden>Включить уведомления</button>
+      <span id="who" class="who"></span>
+    </header>
+
+    <div id="feed" class="feed">
+      <p id="feed-empty" class="hint centered">Пока пусто. Напиши первое сообщение</p>
+    </div>
+
+    <button id="jump" class="jump" type="button" hidden>Новые сообщения ↓</button>
+
+    <form id="composer" class="composer">
+      <input id="composer-input" type="text" placeholder="Сообщение"
+             autocomplete="off" autocorrect="on" enterkeyhint="send" maxlength="4000">
+      <button id="composer-send" type="submit">→</button>
+    </form>
+  </section>
+
+  <p id="page-error" class="page-error" hidden></p>
+
+  <script src="/transport.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

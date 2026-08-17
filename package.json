@@ -1,0 +1,38 @@
+{
+  "name": "kuzgram",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Семейный мессенджер: PWA с push-уведомлениями на iOS, один общий чат, вход по инвайт-кодам",
+  "main": "server.js",
+  "keywords": [
+    "pwa",
+    "web-push",
+    "push-notifications",
+    "ios",
+    "service-worker",
+    "express",
+    "sqlite",
+    "better-sqlite3",
+    "chat",
+    "messenger",
+    "self-hosted",
+    "vanilla-js",
+    "no-build"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "invite": "node bin/invite.js",
+    "test": "node --test test/*.test.js",
+    "coverage": "node --test --experimental-test-coverage test/*.test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "web-push": "^3.6.7"
+  }
+}
