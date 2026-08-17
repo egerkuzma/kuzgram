@@ -54,7 +54,7 @@ cp .env.example .env
 npx web-push generate-vapid-keys   # положить пару в .env
 ```
 
-### В Docker
+Дальше всё живёт в Docker — Node на хосте не нужен:
 
 ```bash
 docker compose up -d --build
@@ -69,24 +69,11 @@ docker compose logs -f kuzgram
 ```bash
 docker compose exec kuzgram node bin/invite.js            # выдать код
 docker compose exec kuzgram node bin/invite.js --user 2   # код на устройство
+docker compose restart kuzgram                            # перезапустить
 docker compose down                                       # остановить
 ```
 
-### Без Docker
-
-```bash
-npm install
-npm start
-```
-
-Нужен Node 22 или новее: код использует встроенный тест-раннер и `fetch`.
-Простейший способ держать процесс живым — `nohup npm start > server.log 2>&1 &`,
-но перезагрузку машины это не переживёт; для постоянной работы лучше
-systemd-юнит или всё-таки Docker.
-
-Переезд с голого запуска в контейнер: остановить процесс, слить WAL
-(`node -e 'require("better-sqlite3")("kuzgram.db").pragma("wal_checkpoint(TRUNCATE)")'`),
-скопировать `kuzgram.db` в `./data/` и поднять compose.
+После правок в коде — `docker compose up -d --build`.
 
 ## Приглашения
 
@@ -140,8 +127,18 @@ API: `POST /api/join`, `GET /api/me`, `GET /api/messages?after=<id>`,
 
 ## Тесты
 
+Отдельная стадия сборки — Node на хосте не нужен, сборка падает на красных
+тестах:
+
 ```bash
-npm test          # 52 проверки
+docker build --target test .
+```
+
+Если Node всё-таки стоит локально, работает и напрямую:
+
+```bash
+npm install
+npm test          # 53 проверки
 npm run coverage  # то же самое с отчётом покрытия
 ```
 

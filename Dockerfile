@@ -12,6 +12,14 @@ RUN apt-get update \
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
+# --- тесты ---
+# Отдельная стадия, чтобы прогонять их без Node на хосте:
+#   docker build --target test .
+# Стадия не попадает в рабочий образ, а сборка падает, если тесты красные.
+FROM deps AS test
+COPY . .
+RUN npm test
+
 # --- рабочий образ ---
 FROM node:22-bookworm-slim
 
