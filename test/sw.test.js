@@ -107,6 +107,19 @@ test('навигация без сети показывает заглушку, 
   assert.match(await res.text(), /Нет связи/);
 });
 
+test('скачивание файла идёт мимо воркера, даже будучи навигацией', async () => {
+  let calls = 0;
+  const w = loadWorker({ fetch: async () => { calls++; throw new Error('offline'); } });
+
+  const event = makeEvent({
+    request: { mode: 'navigate', url: 'https://chat.example.com/files/' + 'a'.repeat(32) + '?exp=1&sig=x' },
+  });
+  await w.dispatch('fetch', event);
+
+  assert.strictEqual(event.responded, undefined, 'заглушка не должна подменять скачивание');
+  assert.strictEqual(calls, 0);
+});
+
 test('всё, кроме навигации, воркер не трогает', async () => {
   let calls = 0;
   const w = loadWorker({ fetch: async () => { calls++; return new Response('{}'); } });

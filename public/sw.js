@@ -36,6 +36,11 @@ var OFFLINE_PAGE = '<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">'
 self.addEventListener('fetch', function (event) {
   if (event.request.mode !== 'navigate') return;
 
+  // Скачивание файла браузер тоже считает навигацией. Его пропускаем мимо:
+  // двести мегабайт не должны течь через воркер, а при обрыве связи заглушка
+  // заменила бы собой окно приложения
+  if (new URL(event.request.url).pathname.indexOf('/files/') === 0) return;
+
   event.respondWith(
     fetch(event.request).catch(function () {
       return new Response(OFFLINE_PAGE, {

@@ -55,6 +55,10 @@
     <div id="emoji-panel" class="emoji-panel" hidden></div>
 
     <form id="composer" class="composer">
+      <!-- label, а не button с input.click(): так выбор файла открывается
+           нативно и надёжно, в том числе на iOS -->
+      <label class="emojibtn attachbtn" for="file-input" aria-label="Прикрепить файл">📎</label>
+      <input id="file-input" class="visually-hidden" type="file" multiple>
       <button id="emoji-toggle" class="emojibtn" type="button"
               aria-label="Смайлики" aria-expanded="false">🙂</button>
       <input id="composer-input" type="text" placeholder="Сообщение"
@@ -62,6 +66,16 @@
       <button id="composer-send" type="submit">→</button>
     </form>
   </section>
+
+  <!-- Просмотр картинки поверх чата: открывать её в том же окне нельзя,
+       в установленном приложении оттуда не было бы кнопки «назад» -->
+  <div id="viewer" class="viewer" hidden>
+    <img id="viewer-img" alt="">
+    <div class="viewer-bar">
+      <a id="viewer-download" class="pushbtn" download>Скачать</a>
+      <button id="viewer-close" class="pushbtn" type="button">Закрыть</button>
+    </div>
+  </div>
 
   <p id="page-error" class="page-error" hidden></p>
 

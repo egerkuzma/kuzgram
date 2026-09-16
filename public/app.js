@@ -22,6 +22,11 @@ var el = {
   composer: document.getElementById('composer'),
   input: document.getElementById('composer-input'),
   send: document.getElementById('composer-send'),
+  fileInput: document.getElementById('file-input'),
+  viewer: document.getElementById('viewer'),
+  viewerImg: document.getElementById('viewer-img'),
+  viewerDownload: document.getElementById('viewer-download'),
+  viewerClose: document.getElementById('viewer-close'),
   pageError: document.getElementById('page-error'),
 };
 
@@ -30,6 +35,7 @@ var state = {
   user: null,
   seen: new Set(), // id уже показанных сообщений — чтобы опрос не задваивал
   started: false,
+  limits: { file_max_bytes: 0 }, // приходит с сервера при входе
 };
 
 var ERRORS = {
@@ -44,6 +50,11 @@ var ERRORS = {
   bad_token: 'Токен больше не действует, войди заново',
   empty_text: 'Пустое сообщение',
   long_text: 'Сообщение слишком длинное',
+  file_too_large: 'Файл слишком большой',
+  proxy_too_large: 'Файл слишком большой: его не пропустил прокси перед сервером',
+  empty_file: 'Файл пустой',
+  upload_failed: 'Не удалось загрузить файл',
+  no_file: 'Файл не найден',
 };
 
 // На айфоне консоли нет, поэтому любая неожиданная ошибка — на страницу
@@ -125,10 +136,12 @@ function bubble(text, own) {
   var box = document.createElement('div');
   box.className = 'bubble';
 
-  var body = document.createElement('span');
-  body.className = 'text';
-  body.textContent = text; // только textContent: чужой текст в разметку не пускаем
-  box.appendChild(body);
+  if (text) {
+    var body = document.createElement('span');
+    body.className = 'text';
+    body.textContent = text; // только textContent: чужой текст в разметку не пускаем
+    box.appendChild(body);
+  }
 
   if (isEmojiOnly(text)) wrap.classList.add('emoji-only');
 
@@ -154,6 +167,7 @@ function renderMessage(msg) {
     author.textContent = msg.user_name;
     node._box.insertBefore(author, node._box.firstChild);
   }
+  if (msg.file) attachFile(node, msg.file);
   node._meta.textContent = hhmm(msg.created_at);
   return node;
 }
@@ -332,6 +346,279 @@ function onSubmitMessage(event) {
   deliver(text, node);
 }
 
+/* ---------- файлы ---------- */
+
+// Прямо в ленте показываем только растровые картинки — тот же список, что на сервере
+var PREVIEW_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+var LINK_MARGIN = 60 * 1000; // ссылку, которой осталось жить меньше минуты, не используем
+
+var FILE_ICONS = [
+  [/android\.package-archive/, '📦'],
+  [/^image\//, '🖼️'],
+  [/^video\//, '🎬'],
+  [/^audio\//, '🎵'],
+  [/pdf$/, '📄'],
+  [/zip|rar|7z|tar|gzip|compressed/, '🗜️'],
+  [/^text\/|msword|wordprocessing|spreadsheet|excel/, '📝'],
+];
+
+function fileIcon(mime) {
+  for (var i = 0; i < FILE_ICONS.length; i++) {
+    if (FILE_ICONS[i][0].test(mime || '')) return FILE_ICONS[i][1];
+  }
+  return '📎';
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' Б';
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' КБ';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1).replace('.', ',') + ' МБ';
+  return (bytes / 1024 / 1024 / 1024).toFixed(2).replace('.', ',') + ' ГБ';
+}
+
+// Срок считаем от своего «сейчас»: сервер присылает, сколько секунд ссылке осталось,
+// а не момент истечения, и расхождение часов на телефоне ничего не ломает
+function rememberLink(file) {
+  if (file.url && file.expires_in) file.deadline = Date.now() + file.expires_in * 1000;
+}
+
+function linkIsFresh(file) {
+  return Boolean(file.url && file.deadline && Date.now() < file.deadline - LINK_MARGIN);
+}
+
+async function freshLink(file) {
+  if (linkIsFresh(file)) return file.url;
+  var data = await api('/api/files/' + encodeURIComponent(file.id) + '/link');
+  file.url = data.url;
+  file.expires_in = data.expires_in;
+  rememberLink(file);
+  return file.url;
+}
+
+// Ссылка живая — ничего не перехватываем, браузер качает сам: это синхронный тап,
+// и никакие блокировщики его не остановят. Протухла — берём новую и жмём ещё раз
+function onDownloadClick(event, file, anchor) {
+  if (linkIsFresh(file)) {
+    anchor.href = file.url + '&dl=1';
+    return;
+  }
+  event.preventDefault();
+  anchor.classList.add('busy');
+  freshLink(file)
+    .then(function (url) {
+      anchor.href = url + '&dl=1';
+      anchor.click();
+    })
+    .catch(function (err) {
+      showPageError('Скачивание: ' + describe(err));
+    })
+    .then(function () {
+      anchor.classList.remove('busy');
+    });
+}
+
+function fileCard(file, clickable) {
+  var card = document.createElement(clickable ? 'a' : 'div');
+  card.className = 'file-card';
+
+  var icon = document.createElement('span');
+  icon.className = 'file-icon';
+  icon.textContent = fileIcon(file.mime || file.type);
+
+  var info = document.createElement('span');
+  info.className = 'file-info';
+
+  var name = document.createElement('span');
+  name.className = 'file-name';
+  name.textContent = file.name; // имя тоже чужое — только textContent
+
+  var size = document.createElement('span');
+  size.className = 'file-size';
+  size.textContent = formatSize(file.size);
+
+  info.appendChild(name);
+  info.appendChild(size);
+  card.appendChild(icon);
+  card.appendChild(info);
+  return card;
+}
+
+function attachFile(node, file) {
+  rememberLink(file);
+  var holder;
+
+  if (PREVIEW_TYPES.indexOf(file.mime) !== -1) {
+    holder = document.createElement('img');
+    holder.className = 'file-image';
+    holder.alt = file.name;
+    holder.src = file.url;
+
+    holder.addEventListener('load', function () {
+      // Картинка выросла из заглушки: если человек был внизу — остаёмся внизу
+      var gap = el.feed.scrollHeight - el.feed.scrollTop - el.feed.clientHeight;
+      if (gap - holder.offsetHeight < STICK_PX) scrollToBottom();
+    });
+    // Ссылка могла протухнуть, пока лента висела открытой, — одна попытка обновить
+    holder.addEventListener('error', function () {
+      if (holder._retried) return;
+      holder._retried = true;
+      file.deadline = 0;
+      freshLink(file).then(function (url) { holder.src = url; }).catch(function () {});
+    });
+    holder.addEventListener('click', function () { openViewer(file); });
+  } else {
+    holder = fileCard(file, true);
+    holder.href = file.url ? file.url + '&dl=1' : '#';
+    holder.setAttribute('download', file.name);
+    holder.addEventListener('click', function (event) { onDownloadClick(event, file, holder); });
+  }
+
+  node._box.insertBefore(holder, node._meta);
+}
+
+function openViewer(file) {
+  el.viewerImg.alt = file.name;
+  el.viewerDownload.setAttribute('download', file.name);
+  el.viewerDownload.onclick = function (event) { onDownloadClick(event, file, el.viewerDownload); };
+  el.viewer.hidden = false;
+
+  freshLink(file)
+    .then(function (url) {
+      el.viewerImg.src = url;
+      el.viewerDownload.href = url + '&dl=1';
+    })
+    .catch(function (err) {
+      closeViewer();
+      showPageError('Картинка: ' + describe(err));
+    });
+}
+
+function closeViewer() {
+  el.viewer.hidden = true;
+  el.viewerImg.removeAttribute('src');
+}
+
+// XMLHttpRequest, а не fetch: только он умеет прогресс отправки
+function uploadFile(file, onProgress) {
+  return new Promise(function (resolve, reject) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/files');
+    xhr.setRequestHeader('Authorization', 'Bearer ' + state.token);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name || 'file'));
+    xhr.setRequestHeader('X-File-Type', file.type || '');
+
+    xhr.upload.onprogress = function (event) {
+      if (event.lengthComputable) onProgress(event.loaded / event.total);
+    };
+
+    xhr.onload = function () {
+      var data = null;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch (err) {
+        data = null;
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && data && data.message) return resolve(data);
+
+      var error = new Error((data && data.error) || 'HTTP ' + xhr.status);
+      error.status = xhr.status;
+      error.code = data && data.error;
+      // 413 без нашего JSON — это отбил прокси, до сервера файл не дошёл
+      if (xhr.status === 413 && !error.code) error.code = 'proxy_too_large';
+      reject(error);
+    };
+
+    xhr.onerror = function () {
+      var offline = new Error('Нет связи с сервером');
+      offline.offline = true;
+      reject(offline);
+    };
+
+    xhr.send(file);
+  });
+}
+
+function pendingFileBubble(file) {
+  var node = bubble('', true);
+  node.dataset.uid = String(state.user.id);
+
+  var card = fileCard({ name: file.name, size: file.size, mime: file.type }, false);
+  var progress = document.createElement('div');
+  progress.className = 'progress';
+  var bar = document.createElement('span');
+  progress.appendChild(bar);
+
+  node._box.insertBefore(card, node._meta);
+  node._box.insertBefore(progress, node._meta);
+  node._progress = progress;
+  node._bar = bar;
+  return node;
+}
+
+function markUpload(node, status, value) {
+  node.classList.toggle('pending', status === 'sending');
+  node.classList.toggle('failed', status === 'failed');
+  node._progress.hidden = status !== 'sending';
+
+  if (status === 'sending') {
+    var percent = Math.round((value || 0) * 100);
+    node._bar.style.width = percent + '%';
+    node._meta.textContent = percent < 100 ? 'загружается ' + percent + '%' : 'сохраняется…';
+  }
+  if (status === 'failed') node._meta.textContent = value;
+}
+
+// Файлы уходят по одному: несколько больших загрузок разом на мобильном
+// интернете только мешали бы друг другу
+var uploadQueue = Promise.resolve();
+
+function enqueueUpload(file, node) {
+  uploadQueue = uploadQueue.then(function () { return deliverFile(file, node); });
+}
+
+function deliverFile(file, node) {
+  var limit = state.limits.file_max_bytes;
+  if (limit && file.size > limit) {
+    markUpload(node, 'failed', 'Больше ' + formatSize(limit) + ' — не отправить');
+    return Promise.resolve();
+  }
+
+  markUpload(node, 'sending', 0);
+
+  return uploadFile(file, function (share) { markUpload(node, 'sending', share); })
+    .then(function (data) {
+      node.remove();
+      addMessages([data.message]);
+      scrollToBottom();
+      Transport.poke();
+    })
+    .catch(function (err) {
+      if (err.status === 401) return dropSession();
+      markUpload(node, 'failed', describe(err) + ' · нажми, чтобы повторить');
+      node.onclick = function () {
+        node.onclick = null;
+        enqueueUpload(file, node);
+      };
+    });
+}
+
+function onFilesChosen() {
+  var chosen = Array.prototype.slice.call(el.fileInput.files || []);
+  el.fileInput.value = ''; // чтобы тот же файл можно было выбрать ещё раз
+  if (!chosen.length) return;
+
+  toggleEmojiPanel(false);
+  el.feedEmpty.hidden = true;
+
+  chosen.forEach(function (file) {
+    var node = pendingFileBubble(file);
+    el.feed.appendChild(node);
+    enqueueUpload(file, node);
+  });
+  scrollToBottom();
+}
+
 /* ---------- установка на домашний экран ---------- */
 
 // Chrome (Android и десктоп) даёт перехватить свой диалог установки и позвать
@@ -498,8 +785,9 @@ function showLogin() {
   el.code.focus();
 }
 
-function showChat(user) {
+function showChat(user, limits) {
   state.user = user;
+  if (limits) state.limits = limits;
   el.who.textContent = user.name;
   el.login.classList.remove('active');
   el.login.hidden = true;
@@ -522,6 +810,7 @@ function dropSession() {
   el.feed.innerHTML = '';
   el.feed.appendChild(el.feedEmpty);
   el.feedEmpty.hidden = false;
+  closeViewer();
   forgetToken();
   showLogin();
   showLoginError(ERRORS.bad_token);
@@ -565,7 +854,7 @@ async function onSubmitLogin(event) {
     localStorage.setItem(TOKEN_KEY, data.token);
     el.code.value = '';
     el.name.value = '';
-    showChat(data.user);
+    showChat(data.user, data.limits);
   } catch (err) {
     showLoginError(describe(err));
   } finally {
@@ -579,7 +868,7 @@ async function resume() {
   try {
     var data = await api('/api/me');
     clearPageError();
-    showChat(data.user);
+    showChat(data.user, data.limits);
   } catch (err) {
     if (err.status === 401) {
       forgetToken();
@@ -615,6 +904,12 @@ function boot() {
   el.loginForm.addEventListener('submit', onSubmitLogin);
   el.composer.addEventListener('submit', onSubmitMessage);
   el.pushBtn.addEventListener('click', onEnablePush);
+
+  el.fileInput.addEventListener('change', onFilesChosen);
+  el.viewerClose.addEventListener('click', closeViewer);
+  el.viewer.addEventListener('click', function (event) {
+    if (event.target === el.viewer || event.target === el.viewerImg) closeViewer();
+  });
 
   buildEmojiPanel();
   el.emojiToggle.addEventListener('click', function () { toggleEmojiPanel(); });

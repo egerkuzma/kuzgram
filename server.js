@@ -8,6 +8,7 @@ const express = require('express');
 
 const store = require('./db');
 const push = require('./push');
+const files = require('./files');
 const { newToken, requireAuth } = require('./auth');
 
 const NAME_MAX = 32;
@@ -31,6 +32,16 @@ function joinLocked() {
 const PORT = 3000;
 const HOST = '0.0.0.0';
 const PUBLIC_DIR = path.join(__dirname, 'public');
+
+// Клиенту лимит нужен заранее: проверить размер до того, как гнать
+// двести мегабайт по мобильному интернету
+const clientLimits = () => ({ file_max_bytes: files.FILE_MAX_BYTES });
+
+// К вложению в выдаче прикладывается свежая ссылка на скачивание
+function withLink(message) {
+  if (!message || !message.file) return message;
+  return { ...message, file: { ...message.file, ...files.linkFor(message.file.id) } };
+}
 
 const app = express();
 app.use(express.json({ limit: '64kb' }));
@@ -63,6 +74,33 @@ app.get('/sw.js', (req, res, next) => {
   res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.type('application/javascript');
   res.sendFile(file);
+});
+
+// Скачивание по подписанной ссылке. Токена тут нет и быть не может: <img>
+// и <a download> заголовков не шлют. Доступ даёт только свежая подпись,
+// а её выдаёт авторизованный /api/files/:id/link
+app.get('/files/:id', (req, res) => {
+  const { id } = req.params;
+  const verdict = files.verifyLink(id, req.query.exp, req.query.sig);
+
+  if (verdict !== 'ok') {
+    return res
+      .status(403)
+      .type('text/plain; charset=utf-8')
+      .send(verdict === 'expired' ? 'Ссылка устарела, открой файл из чата ещё раз' : 'Нет доступа');
+  }
+
+  const file = store.getAttachment(id);
+  if (!file) return res.status(404).type('text/plain; charset=utf-8').send('Файл не найден');
+
+  res.set(files.downloadHeaders(file, req.query.dl === '1'));
+  // dotfiles: 'allow' — имя файла шестнадцатеричное, а точка может встретиться
+  // выше по пути каталога, и без этого send молча отвечал бы 404
+  res.sendFile(files.pathFor(id), { cacheControl: false, lastModified: false, dotfiles: 'allow' }, (err) => {
+    if (!err || res.headersSent) return;
+    res.removeHeader('Content-Disposition');
+    res.status(404).type('text/plain; charset=utf-8').send('Файл не найден');
+  });
 });
 
 app.use(express.static(PUBLIC_DIR));
@@ -102,17 +140,17 @@ app.post('/api/join', (req, res) => {
   store.createToken(token, result.user.id);
 
   console.log(`[join] ${result.user.name} (id=${result.user.id}) по коду ${code}`);
-  res.json({ token, user: { id: result.user.id, name: result.user.name } });
+  res.json({ token, user: { id: result.user.id, name: result.user.name }, limits: clientLimits() });
 });
 
 app.get('/api/me', requireAuth, (req, res) => {
-  res.json({ user: req.user });
+  res.json({ user: req.user, limits: clientLimits() });
 });
 
 app.get('/api/messages', requireAuth, (req, res) => {
   const raw = Number.parseInt(req.query.after, 10);
   const after = Number.isFinite(raw) && raw > 0 ? raw : 0;
-  res.json({ messages: store.messagesAfter(after), limit: PAGE_LIMIT });
+  res.json({ messages: store.messagesAfter(after).map(withLink), limit: PAGE_LIMIT });
 });
 
 app.post('/api/messages', requireAuth, (req, res) => {
@@ -133,6 +171,53 @@ app.post('/api/messages', requireAuth, (req, res) => {
   res.json({ message });
 });
 
+// Файл идёт телом запроса как есть, без multipart: имя и тип — в заголовках.
+// Так не нужна библиотека для разбора форм, и поток сразу пишется на диск
+app.post('/api/files', requireAuth, async (req, res) => {
+  const tooLarge = () =>
+    res.status(413).set('Connection', 'close').json({ error: 'file_too_large', limit: files.FILE_MAX_BYTES });
+
+  const declared = Number(req.get('content-length'));
+  if (Number.isFinite(declared) && declared > files.FILE_MAX_BYTES) return tooLarge();
+
+  const name = files.sanitizeName(req.get('x-file-name'));
+  const mime = files.normalizeMime(req.get('x-file-type'), name);
+
+  let stored;
+  try {
+    stored = await files.receive(req);
+  } catch (err) {
+    if (res.headersSent || err.code === 'upload_aborted') return;
+    if (err.code === 'file_too_large') return tooLarge();
+    if (err.code === 'empty_file') return res.status(400).json({ error: 'empty_file' });
+    console.error('[file] приём упал:', (err.cause && err.cause.message) || err.message);
+    return res.status(400).json({ error: 'upload_failed' });
+  }
+
+  let message;
+  try {
+    message = store.addFileMessage(req.user.id, { id: stored.id, name, mime, size: stored.size });
+  } catch (err) {
+    files.remove(stored.id);
+    console.error('[file] запись в базу упала:', err.message);
+    return res.status(500).json({ error: 'upload_failed' });
+  }
+
+  console.log(`[file] #${message.id} от ${req.user.name}: ${name}, ${stored.size} байт`);
+
+  push
+    .broadcast(req.user.id, { title: message.user_name, body: files.pushText(message.file), id: message.id })
+    .catch((err) => console.error('[push] рассылка упала:', err.message));
+
+  res.json({ message: withLink(message) });
+});
+
+app.get('/api/files/:id/link', requireAuth, (req, res) => {
+  const file = files.isValidId(req.params.id) && store.getAttachment(req.params.id);
+  if (!file) return res.status(404).json({ error: 'no_file' });
+  res.json(files.linkFor(file.id));
+});
+
 app.post('/api/subscribe', requireAuth, (req, res) => {
   const sub = req.body || {};
   const keys = sub.keys || {};
@@ -149,10 +234,14 @@ app.post('/api/subscribe', requireAuth, (req, res) => {
 
 // При запуске из тестов слушать не надо: там поднимают app на своём порту
 if (require.main === module) {
-  app.listen(PORT, HOST, () => {
+  const server = app.listen(PORT, HOST, () => {
     console.log(`kuzgram слушает http://${HOST}:${PORT}`);
-    console.log(`база: ${store.db.name}`);
+    console.log(`база: ${store.db.name}, файлы: ${files.FILES_DIR}`);
   });
+
+  // По умолчанию Node обрывает запрос через пять минут. Большой APK
+  // по мобильному интернету в это легко не укладывается
+  server.requestTimeout = 60 * 60 * 1000;
 }
 
 module.exports = app;

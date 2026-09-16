@@ -55,6 +55,18 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id);
+
+  -- Вложение живёт в отдельной строке, а сам файл — на диске под случайным id.
+  -- Одно сообщение — не больше одного файла
+  CREATE TABLE IF NOT EXISTS attachments (
+    id         TEXT    PRIMARY KEY,
+    message_id INTEGER NOT NULL UNIQUE REFERENCES messages(id),
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    name       TEXT    NOT NULL,
+    mime       TEXT    NOT NULL,
+    size       INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
 `);
 
 // Код с проставленным for_user не заводит нового человека, а привязывает
@@ -69,6 +81,11 @@ if (!inviteColumns.includes('for_user')) {
 if (!inviteColumns.includes('expires_at')) {
   db.exec('ALTER TABLE invites ADD COLUMN expires_at INTEGER');
 }
+
+const MESSAGE_COLUMNS = `
+  m.id, m.user_id, m.text, m.created_at, u.name AS user_name,
+  a.id AS file_id, a.name AS file_name, a.mime AS file_mime, a.size AS file_size
+`;
 
 const q = {
   insertUser: db.prepare('INSERT INTO users (name, created_at) VALUES (?, ?)'),
@@ -94,17 +111,27 @@ const q = {
 
   insertMessage: db.prepare('INSERT INTO messages (user_id, text, created_at) VALUES (?, ?, ?)'),
   getMessage: db.prepare(`
-    SELECT m.id, m.user_id, m.text, m.created_at, u.name AS user_name
-    FROM messages m JOIN users u ON u.id = m.user_id
+    SELECT ${MESSAGE_COLUMNS}
+    FROM messages m
+    JOIN users u ON u.id = m.user_id
+    LEFT JOIN attachments a ON a.message_id = m.id
     WHERE m.id = ?
   `),
   messagesAfter: db.prepare(`
-    SELECT m.id, m.user_id, m.text, m.created_at, u.name AS user_name
-    FROM messages m JOIN users u ON u.id = m.user_id
+    SELECT ${MESSAGE_COLUMNS}
+    FROM messages m
+    JOIN users u ON u.id = m.user_id
+    LEFT JOIN attachments a ON a.message_id = m.id
     WHERE m.id > ?
     ORDER BY m.id ASC
     LIMIT 100
   `),
+
+  insertAttachment: db.prepare(`
+    INSERT INTO attachments (id, message_id, user_id, name, mime, size, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `),
+  getAttachment: db.prepare('SELECT id, message_id, user_id, name, mime, size FROM attachments WHERE id = ?'),
 
   upsertSubscription: db.prepare(`
     INSERT INTO subscriptions (user_id, endpoint, keys_json, created_at)
@@ -117,6 +144,21 @@ const q = {
 };
 
 const now = () => Date.now();
+
+function toMessage(row) {
+  if (!row) return row;
+  const { file_id: fileId, file_name: name, file_mime: mime, file_size: size, ...message } = row;
+  message.file = fileId ? { id: fileId, name, mime, size } : null;
+  return message;
+}
+
+// Сообщение и вложение появляются вместе или не появляются вовсе
+const insertFileMessage = db.transaction((userId, file) => {
+  const ts = now();
+  const messageId = Number(q.insertMessage.run(userId, '', ts).lastInsertRowid);
+  q.insertAttachment.run(file.id, messageId, userId, file.name, file.mime, file.size, ts);
+  return messageId;
+});
 
 // Инвайт одноразовый: пометка used и создание юзера — одной транзакцией,
 // иначе два одновременных входа по одному коду создадут двух пользователей
@@ -146,6 +188,7 @@ const redeemInvite = db.transaction((code, name) => {
 
 module.exports = {
   db,
+  DB_PATH,
   now,
   redeemInvite,
 
@@ -168,9 +211,11 @@ module.exports = {
 
   addMessage: (userId, text) => {
     const info = q.insertMessage.run(userId, text, now());
-    return q.getMessage.get(Number(info.lastInsertRowid));
+    return toMessage(q.getMessage.get(Number(info.lastInsertRowid)));
   },
-  messagesAfter: (afterId) => q.messagesAfter.all(afterId),
+  addFileMessage: (userId, file) => toMessage(q.getMessage.get(insertFileMessage(userId, file))),
+  messagesAfter: (afterId) => q.messagesAfter.all(afterId).map(toMessage),
+  getAttachment: (id) => q.getAttachment.get(id),
 
   saveSubscription: (userId, endpoint, keys) =>
     q.upsertSubscription.run(userId, endpoint, JSON.stringify(keys), now()),

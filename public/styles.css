@@ -272,3 +272,113 @@ input, button {
   font-size: 13px;
   white-space: pre-wrap;
 }
+
+/* ---- файлы ---- */
+
+/* Скрыт от глаз, но не display:none — иначе на части браузеров label
+   перестаёт открывать выбор файла */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* Скрепка и смайлики — второстепенные, синей остаётся только отправка */
+.composer .emojibtn {
+  width: 42px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+.attachbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.file-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+  max-width: 100%;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.file-card .file-icon { flex: 0 0 auto; font-size: 30px; line-height: 1; }
+.file-card .file-info { display: flex; flex-direction: column; min-width: 0; }
+.file-card .file-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-card .file-size { font-size: 13px; color: var(--muted); }
+.msg.own .file-card .file-size { color: #a9c1e6; }
+.file-card.busy { opacity: .6; }
+
+.bubble > .file-image {
+  display: block;
+  align-self: flex-start;
+  max-width: 100%;
+  max-height: 320px;
+  min-width: 120px;
+  min-height: 90px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--line);
+  cursor: zoom-in;
+}
+
+.progress {
+  height: 4px;
+  margin-top: 8px;
+  background: rgba(255, 255, 255, .15);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress > span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: #fff;
+  transition: width .15s linear;
+}
+
+.viewer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: calc(16px + env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom));
+  background: rgba(1, 4, 9, .94);
+}
+.viewer img {
+  max-width: 100%;
+  max-height: calc(100% - 70px);
+  object-fit: contain;
+  border-radius: 6px;
+}
+.viewer-bar { display: flex; gap: 12px; }
+.viewer-bar .pushbtn {
+  margin-left: 0;
+  padding: 10px 18px;
+  font-size: 15px;
+  text-decoration: none;
+}

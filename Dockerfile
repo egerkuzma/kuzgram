@@ -30,7 +30,7 @@ ENV KUZGRAM_DB=/data/kuzgram.db
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json server.js db.js auth.js push.js ./
+COPY package.json server.js db.js auth.js push.js files.js ./
 COPY bin ./bin
 COPY public ./public
 
